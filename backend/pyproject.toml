@@ -17,6 +17,7 @@ dependencies = [
     "tweepy>=4.14",
     "aiosqlite>=0.20",
     "python-dotenv>=1.0",
+    "feedparser>=6.0",
 ]
 
 [project.optional-dependencies]

@@ -105,3 +105,73 @@ class LLMConfig(Base):
     base_url: Mapped[str | None] = mapped_column(String(256), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ---------- Inbox / content ingestion ----------
+
+
+class InboxSourceType(str, Enum):
+    rss = "rss"
+    twitter_list = "twitter_list"
+    web = "web"
+
+
+class InboxItemStatus(str, Enum):
+    new = "new"
+    read = "read"
+    archived = "archived"
+    used = "used"  # already turned into a Post
+
+
+class InboxSource(Base):
+    __tablename__ = "inbox_source"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    type: Mapped[str] = mapped_column(String(32), index=True)
+    config_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    fetch_interval_min: Mapped[int] = mapped_column(Integer, default=30)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class InboxItem(Base):
+    __tablename__ = "inbox_item"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("inbox_source.id", ondelete="CASCADE"), index=True)
+    external_id: Mapped[str] = mapped_column(String(256), index=True)  # dedup key per source
+    title: Mapped[str] = mapped_column(String(512), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    author: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    tags_json: Mapped[list] = mapped_column(JSON, default=list)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    status: Mapped[str] = mapped_column(String(16), default=InboxItemStatus.new.value, index=True)
+    raw_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    rewritten_post_id: Mapped[int | None] = mapped_column(ForeignKey("post.id", ondelete="SET NULL"), nullable=True)
+
+
+class RewriteRule(Base):
+    """When an inbox item matches keyword/tag/source filters, auto-trigger AI rewrite into a draft Post."""
+
+    __tablename__ = "rewrite_rule"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    enabled: Mapped[bool] = mapped_column(default=True)
+    # Match conditions (all AND'd; empty = ignored)
+    source_ids_json: Mapped[list] = mapped_column(JSON, default=list)  # [int]
+    keywords_json: Mapped[list] = mapped_column(JSON, default=list)  # [str], OR-match against title+content
+    tags_json: Mapped[list] = mapped_column(JSON, default=list)  # [str], OR-match against item tags
+    # Rewrite settings
+    style_prompt: Mapped[str] = mapped_column(Text, default="")
+    target_platforms_json: Mapped[list] = mapped_column(JSON, default=list)  # [str] hint for AI
+    llm_config_id: Mapped[int | None] = mapped_column(ForeignKey("llm_config.id", ondelete="SET NULL"), nullable=True)
+    auto_publish: Mapped[bool] = mapped_column(default=False)  # if true, also queue Post to targets
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
